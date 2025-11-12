@@ -46,10 +46,11 @@ pub enum DiceResult {
     Error = -2,
 }
 
+// For now user code is unable to construct this (besides unsafe casting)
 #[repr(C, align(8))]
-#[derive(Copy, Clone, Debug)]
+#[derive(Debug)]
 pub struct Metadata {
-    pub drop_: bool,
+    drop_: bool,
 }
 
 pub struct MempoolAllocator;
@@ -57,7 +58,12 @@ pub struct MempoolAllocator;
 unsafe impl GlobalAlloc for MempoolAllocator {
     #[inline]
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        unsafe { raw::mempool_alloc(layout.size()) as *mut u8 }
+        let ptr = unsafe { raw::mempool_alloc(layout.size()) as *mut u8 };
+        debug_assert!(
+            !ptr.is_null() && (ptr as *mut usize).is_aligned(),
+            "Sanity Check"
+        );
+        ptr
     }
 
     #[inline]
@@ -103,7 +109,9 @@ pub mod thread {
                     self as *const _ as *const _,
                     size_of::<TlsCell<T>>(),
                 );
-                raw as *mut TlsCell<T>
+                let ptr = raw as *mut TlsCell<T>;
+                debug_assert!(ptr.is_aligned() && !ptr.is_null(), "Sanity Check");
+                ptr
             }
         }
 
@@ -117,7 +125,7 @@ pub mod thread {
         pub unsafe fn get_mut<'a>(&self, mt: &'a mut Metadata) -> &'a mut T {
             let cell = self.cell_ptr(mt);
             if unsafe { !(*cell).initialized } {
-                unsafe { std::ptr::write((*cell).value.as_mut_ptr(), T::default()) };
+                unsafe { std::ptr::write_volatile((*cell).value.as_mut_ptr(), T::default()) };
                 unsafe { (*cell).initialized = true };
             }
             unsafe { &mut *(*cell).value.as_mut_ptr() }
