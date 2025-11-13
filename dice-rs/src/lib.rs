@@ -228,8 +228,11 @@ pub mod thread {
 #[macro_export]
 macro_rules! subscribe_scoped {
     ($chain:expr, $prio:expr, |$e:ident: &$t:ty, $m:ident| $body:block) => {{
-        // this guard enforces no capturing of outside scope variables (except statics of course)
-        // it also enforces lifetimes and types of the $body
+        // this guard enforces:
+        // - no capturing of outside scope variables (besides global statics/consts)
+        // - enforces types and lifetimes within body $body
+        // without this one could create a &'static mut Metadata or override the type within the body
+        // or capture variables outside the scope, both of these cases are UB.
         let _guard: fn(&$t, &mut $crate::Metadata) -> $crate::DiceResult =
             |$e: &$t, $m: &mut $crate::Metadata| $body;
 
