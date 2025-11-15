@@ -152,7 +152,6 @@ pub mod thread {
         _marker: PhantomData<T>,
     }
 
-    // this is kind of useless, but clippy wants this.
     impl<T: Default> Default for TlsKey<T> {
         fn default() -> Self {
             Self::new()
