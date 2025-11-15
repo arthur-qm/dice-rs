@@ -128,6 +128,13 @@ unsafe impl GlobalAlloc for MempoolAllocator {
     }
 }
 
+/// this module is for subscribers to be able to know the thread they are running on and use
+/// thread local storage.
+///
+/// <div class="warning">
+/// this requires dice-self module to be linked.
+/// without the dice-self module, this will break.
+/// </div>
 #[cfg(feature = "dice-self")]
 pub mod thread {
     use std::{marker::PhantomData, mem::MaybeUninit};
