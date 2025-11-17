@@ -240,7 +240,7 @@ macro_rules! subscribe_scoped {
             |$e: &$t, $m: &mut $crate::Metadata| $body;
 
         // enforce priority > 4 to not conflict with dice internals
-        assert!(prio > 4, "Priority must be greater than 4");
+        assert!($prio > 4, "Priority must be greater than 4");
 
         extern "C" fn __trampoline(
             chain: $crate::Chain,
