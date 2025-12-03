@@ -136,7 +136,7 @@ const MIN_ALIGN: usize = 8;
 ///
 /// will always allocate size of `size + alignment`
 /// which contains enough space for the header (to restore original pointer) and alignment
-/// 
+///
 /// # Safety
 ///
 /// Everything from [`std::alloc::GlobalAlloc`] applies.
@@ -246,7 +246,7 @@ pub mod thread {
     impl<T: Default> TlsKey<T> {
         #[inline(always)]
         fn cell_ptr(&self, mt: &mut Metadata) -> *mut TlsCell<T> {
-            let self_key = self as *const _ as *const _;
+            let self_key = self as *const TlsKey<T> as *const libc::c_void;
             // SAFETY: We assume dice correctly returns a pointer for TLS storage.
             // in debug build we do an additional sanity check that this holds.
             let raw = unsafe { raw::thread::self_tls(mt, self_key, size_of::<TlsCell<T>>()) };
@@ -321,7 +321,7 @@ macro_rules! subscribe_scoped {
             // or it gives a null in case the Event struct is empty.
             // Rust allows to take references of unit types directly and treat them as instances (like &() as () is type fields)
             // as these have no fields, there is also no concern of possibility of mutating these (potentially shared) references
-            let Some(ev_ref) = (unsafe { <$t as $crate::DiceEvent>::from_raw(event as _) }) else {
+            let Some(ev_ref) = (unsafe { <$t as $crate::DiceEvent>::from_raw(event as *const ()) }) else {
                 return $crate::DiceResult::Invalid;
             };
 
