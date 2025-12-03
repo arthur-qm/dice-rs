@@ -222,6 +222,10 @@ pub mod thread {
     #[repr(C)]
     struct TlsCell<T> {
         initialized: bool,
+        /// actual allocation start, different than struct start due to padding for alignment
+        /// useful if deallocation ever gets added
+        #[allow(unused)]
+        raw_allocation: *mut u8,
         value: MaybeUninit<T>,
     }
 
@@ -244,32 +248,47 @@ pub mod thread {
     }
 
     impl<T: Default> TlsKey<T> {
+        /// get a potentially unatialized thread local storage pointer
+        /// # Safety
+        /// requires valid linking of dice library with self module
+        /// user needs to initialize themselves
         #[inline(always)]
-        fn cell_ptr(&self, mt: &mut Metadata) -> *mut TlsCell<T> {
+        unsafe fn cell_ptr(&self, mt: &mut Metadata) -> *mut TlsCell<T> {
             let self_key = self as *const TlsKey<T> as *const libc::c_void;
-            // SAFETY: We assume dice correctly returns a pointer for TLS storage.
-            // in debug build we do an additional sanity check that this holds.
-            let raw = unsafe { raw::thread::self_tls(mt, self_key, size_of::<TlsCell<T>>()) };
-            let ptr = raw as *mut TlsCell<T>;
-            debug_assert!(ptr.is_aligned() && !ptr.is_null(), "Sanity Check");
-            ptr
-        }
 
+            let align = align_of::<TlsCell<T>>();
+            let size = size_of::<TlsCell<T>>();
+
+            let alloc_size = size + (align - 1);
+
+            // Safety: we give correct size and valid Metadata pointer
+            let raw = unsafe { raw::thread::self_tls(mt, self_key, alloc_size) as *mut u8 };
+            let offset = raw.align_offset(align);
+            let aligned_ptr = unsafe { raw.add(offset) as *mut TlsCell<T> };
+
+            debug_assert!(aligned_ptr.is_aligned(), "Alignment logic failed");
+            debug_assert!(!aligned_ptr.is_null(), "Pointer is null");
+
+            unsafe { (*aligned_ptr).raw_allocation = raw };
+
+            aligned_ptr
+        }
         #[inline]
         pub fn with<R>(&self, mt: &mut Metadata, f: impl FnOnce(&mut T) -> R) -> R {
-            // SAFETY: see the safety contract of `Self::get_mut`
+            // Safety: see the safety contract of `Self::get_mut`
             let t = unsafe { self.get_mut(mt) };
             f(t)
         }
 
-        #[inline]
-        /// # SAFETY
+        /// # Safety
         /// this function requires a valid &'a mut Metdata, which forces unique and exclusive usage.
         /// Furthermore, as Metadata is !Send and !Sync, we also enforce that this thread local object will stay there.
         /// TODO: we could even consider `Pin` type.
+        #[inline]
         pub unsafe fn get_mut<'a>(&self, mt: &'a mut Metadata) -> &'a mut T {
-            let cell = self.cell_ptr(mt);
-            // SAFETY: &'a mut Metadata ensures they have the same lifetime and metadata can only be borrowed once
+            // Safety: cell gets initialized here if it is not already.
+            let cell = unsafe { self.cell_ptr(mt) };
+            // Safety: &'a mut Metadata ensures they have the same lifetime and metadata can only be borrowed once
             // as metadata is unique per subscribe call and is !Send & !Sync, this is safe.
             let cell = unsafe { &mut *cell };
             // TODO: consider using (#[cold] based) unlikely here as this only happens once
@@ -277,7 +296,7 @@ pub mod thread {
                 cell.value = MaybeUninit::new(T::default());
                 cell.initialized = true;
             }
-            // SAFETY: this value is initialized now
+            // Safety: this value is initialized now
             unsafe { cell.value.assume_init_mut() }
         }
     }
