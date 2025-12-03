@@ -134,9 +134,9 @@ const MIN_ALIGN: usize = 8;
 
 /// Dice based memory allocator
 ///
-/// base alignment is 8 bytes, and every object gets a header 8 bytes
-/// this means we overallocate by at minimum 8 bytes.
-/// the padding is then calculated by using the 8 byte discretization.
+/// will always allocate size of `size + alignment`
+/// which contains enough space for the header (to restore original pointer) and alignment
+/// 
 /// # Safety
 ///
 /// Everything from [`std::alloc::GlobalAlloc`] applies.
@@ -194,39 +194,7 @@ unsafe impl GlobalAlloc for MempoolAllocator {
     }
 }
 
-// unsafe impl GlobalAlloc for MempoolAllocator {
-//     /// Returns a pointer to a correctly sized memory region.
-//     /// # Safet
-//     ///
-//     /// Everything from [`std::alloc::GlobalAlloc::alloc`] applies.
-//     #[inline]
-//     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-//         let ptr = unsafe { raw::mempool_alloc(layout.size()) } as *mut u8;
-
-//         assert!(
-//             !ptr.is_null() && ptr as usize % layout.align() == 0,
-//             "Requested alignment {} but got {}",
-//             layout.align(),
-//             2 ^ (ptr as usize).trailing_zeros()
-//         );
-
-//         ptr
-//     }
-
-//     /// Deallocate a previously allocated memory region.
-//     ///
-//     /// # Safety
-//     ///
-//     /// Everything from [`std::alloc::GlobalAlloc::dealloc`] applies
-//     #[inline]
-//     unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
-//         let ptr = ptr as *mut libc::c_void;
-
-//         unsafe { raw::mempool_free(ptr) };
-//     }
-// }
-
-/// Helpers for dice-aware thread-local storage and thread IDs.
+/// Helpers for thread-local storage and thread IDs.
 ///
 /// This module allows subscribers to:
 ///
@@ -278,7 +246,7 @@ pub mod thread {
     impl<T: Default> TlsKey<T> {
         #[inline(always)]
         fn cell_ptr(&self, mt: &mut Metadata) -> *mut TlsCell<T> {
-            let self_key = &self as *const _ as *const libc::c_void;
+            let self_key = self as *const _ as *const _;
             // SAFETY: We assume dice correctly returns a pointer for TLS storage.
             // in debug build we do an additional sanity check that this holds.
             let raw = unsafe { raw::thread::self_tls(mt, self_key, size_of::<TlsCell<T>>()) };
@@ -306,9 +274,8 @@ pub mod thread {
             let cell = unsafe { &mut *cell };
             // TODO: consider using (#[cold] based) unlikely here as this only happens once
             if !cell.initialized {
+                cell.value = MaybeUninit::new(T::default());
                 cell.initialized = true;
-                // SAFETY: external memory, so a volatile write
-                unsafe { std::ptr::write_volatile((*cell).value.as_mut_ptr(), T::default()) };
             }
             // SAFETY: this value is initialized now
             unsafe { cell.value.assume_init_mut() }
