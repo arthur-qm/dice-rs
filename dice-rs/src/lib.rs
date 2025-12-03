@@ -194,6 +194,38 @@ unsafe impl GlobalAlloc for MempoolAllocator {
     }
 }
 
+// unsafe impl GlobalAlloc for MempoolAllocator {
+//     /// Returns a pointer to a correctly sized memory region.
+//     /// # Safet
+//     ///
+//     /// Everything from [`std::alloc::GlobalAlloc::alloc`] applies.
+//     #[inline]
+//     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+//         let ptr = unsafe { raw::mempool_alloc(layout.size()) } as *mut u8;
+
+//         assert!(
+//             !ptr.is_null() && ptr as usize % layout.align() == 0,
+//             "Requested alignment {} but got {}",
+//             layout.align(),
+//             2 ^ (ptr as usize).trailing_zeros()
+//         );
+
+//         ptr
+//     }
+
+//     /// Deallocate a previously allocated memory region.
+//     ///
+//     /// # Safety
+//     ///
+//     /// Everything from [`std::alloc::GlobalAlloc::dealloc`] applies
+//     #[inline]
+//     unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
+//         let ptr = ptr as *mut libc::c_void;
+
+//         unsafe { raw::mempool_free(ptr) };
+//     }
+// }
+
 /// Helpers for dice-aware thread-local storage and thread IDs.
 ///
 /// This module allows subscribers to:

@@ -1,6 +1,9 @@
 use crate::{DiceEvent, TypeId};
 use dice_derive::dice_event;
-use libc::{c_char, c_int, c_long, off_t, c_void, pthread_t, pthread_mutex_t, pthread_attr_t, pthread_cond_t, pthread_rwlock_t, timespec};
+use libc::{
+    c_char, c_int, c_long, c_void, off_t, pthread_cond_t, pthread_mutex_t, pthread_rwlock_t,
+    timespec,
+};
 
 // TODO: autogenerate this
 pub mod raw {
@@ -43,7 +46,7 @@ pub mod raw {
     // missing structs
     pub const EVENT_STACKTRACE_ENTER: TypeId = 40;
     pub const EVENT_STACKTRACE_EXIT: TypeId = 41;
-    
+
     pub const EVENT_ANNOTATE_RWLOCK_CREATE: TypeId = 42;
     pub const EVENT_ANNOTATE_RWLOCK_DESTROY: TypeId = 43;
     pub const EVENT_ANNOTATE_RWLOCK_ACQ: TypeId = 44;
@@ -65,12 +68,12 @@ pub mod raw {
     pub const EVENT_SEM_WAIT: TypeId = 71;
     pub const EVENT_SEM_TRYWAIT: TypeId = 72;
     pub const EVENT_SEM_TIMEDWAIT: TypeId = 73;
-    
+
     pub const EVENT_MMAP: TypeId = 80;
     pub const EVENT_MUNMAP: TypeId = 81;
-    
+
     // missing structs
-    pub const EVENT_DICE_INIT: TypeId = 99;    
+    pub const EVENT_DICE_INIT: TypeId = 99;
     pub const EVENT_DICE_READY: TypeId = 98;
 
     pub const EVENT_MEMCPY: TypeId = 100;
@@ -98,7 +101,6 @@ pub struct ThreadCreateEvent;
 #[dice_event(raw::EVENT_THREAD_JOIN)]
 pub struct ThreadJoinEvent;
 
-
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 #[dice_event(raw::EVENT_SELF_INIT)]
@@ -108,7 +110,6 @@ pub struct SelfInitEvent;
 #[derive(Copy, Clone, Debug)]
 #[dice_event(raw::EVENT_SELF_FINI)]
 pub struct SelfFiniEvent;
-
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -251,7 +252,6 @@ pub struct RWLockUnlockEvent {
     pub ret: c_int,
 }
 
-
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 #[dice_event(raw::EVENT_CXA_GUARD_ACQUIRE)]
@@ -297,7 +297,6 @@ pub struct WriteEvent {
     pub addr: *mut c_void,
     pub size: usize,
 }
-
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -426,7 +425,6 @@ pub struct AnnotateRWLockReleasedEvent {
     pub is_w: c_long,
 }
 
-
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 #[dice_event(raw::EVENT_MALLOC)]
@@ -485,7 +483,6 @@ pub struct AlignedAllocEvent {
     pub ret: *const c_void,
 }
 
-
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 #[dice_event(raw::EVENT_MMAP)]
@@ -509,7 +506,6 @@ pub struct MunmapEvent {
     pub length: usize,
     pub ret: c_int,
 }
-
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
