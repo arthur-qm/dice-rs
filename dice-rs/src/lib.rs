@@ -183,10 +183,6 @@ pub mod thread {
     #[repr(C)]
     struct TlsCell<T> {
         initialized: bool,
-        /// actual allocation start, different than struct start due to padding for alignment
-        /// useful if deallocation ever gets added
-        #[allow(unused)]
-        raw_allocation: *mut u8,
         value: MaybeUninit<T>,
     }
 
@@ -215,24 +211,35 @@ pub mod thread {
         /// user needs to initialize themselves
         #[inline(always)]
         unsafe fn cell_ptr(&self, mt: &mut Metadata) -> *mut TlsCell<T> {
-            let self_key = self as *const TlsKey<T> as *const libc::c_void;
+            // my_obj = self_tls_get(key);
+            // if (!my_obj) {
+            // my_obj = mempool_aligned_alloc(alignment, size);
+            // self_tls_set(key, my_obj, dtor);
+            // }
 
-            let align = align_of::<TlsCell<T>>();
-            let size = size_of::<TlsCell<T>>();
+            let key = self as *const TlsKey<T> as libc::uintptr_t;
 
-            let alloc_size = size + (align - 1);
+            // Safety: null check
+            let raw = unsafe { raw::thread::self_tls_get(mt, key) as *mut TlsCell<T> };
+            if !raw.is_null() {
+                return raw;
+            }
 
-            // Safety: we give correct size and valid Metadata pointer
-            let raw = unsafe { raw::thread::self_tls(mt, self_key, alloc_size) as *mut u8 };
-            let offset = raw.align_offset(align);
-            let aligned_ptr = unsafe { raw.add(offset) as *mut TlsCell<T> };
-
-            debug_assert!(aligned_ptr.is_aligned(), "Alignment logic failed");
-            debug_assert!(!aligned_ptr.is_null(), "Pointer is null");
-
-            unsafe { (*aligned_ptr).raw_allocation = raw };
-
-            aligned_ptr
+            let layout = std::alloc::Layout::new::<TlsCell<T>>();
+            // Safety: correct alignment
+            let raw = unsafe { raw::mempool_aligned_alloc(layout.align(), layout.size()) };
+            let ptr = raw as *mut TlsCell<T>;
+            debug_assert!(!raw.is_null() && raw.is_aligned());
+            // Safety: null and alignment check
+            unsafe {
+                raw::thread::self_tls_set(
+                    mt,
+                    key,
+                    ptr as *mut libc::c_void,
+                    raw::thread::TlsDestructor::default(),
+                )
+            };
+            ptr
         }
         #[inline]
         pub fn with<R>(&self, mt: &mut Metadata, f: impl FnOnce(&mut T) -> R) -> R {

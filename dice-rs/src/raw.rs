@@ -20,13 +20,34 @@ unsafe extern "C" {
 pub mod thread {
     use crate::DiceThreadId;
 
+    #[repr(C)]
+    pub struct TlsDestructor {
+        pub free: Option<extern "C" fn(arg: *mut core::ffi::c_void, ptr: *mut core::ffi::c_void)>,
+        pub arg: *mut core::ffi::c_void,
+    }
+
+    impl Default for TlsDestructor {
+        fn default() -> Self {
+            Self {
+                free: None,
+                arg: std::ptr::null_mut(),
+            }
+        }
+    }
+
     use super::*;
     #[link(name = "dice", kind = "static")]
     unsafe extern "C" {
         pub fn self_id(mt: *mut Metadata) -> DiceThreadId;
         pub fn self_retired(mt: *mut Metadata) -> bool;
-        pub fn self_tls(mt: *mut Metadata, key: *const c_void, size: usize) -> *mut c_void;
-
+        pub fn self_tls(mt: *mut Metadata, key: *const c_void, size: usize) -> *mut libc::c_void;
+        pub fn self_tls_get(mt: *mut Metadata, key: libc::uintptr_t) -> *mut libc::c_void;
+        pub fn self_tls_set(
+            mt: *mut Metadata,
+            key: libc::uintptr_t,
+            value: *mut libc::c_void,
+            dtor: TlsDestructor,
+        );
     }
 }
 
