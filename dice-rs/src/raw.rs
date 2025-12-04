@@ -16,6 +16,7 @@ unsafe extern "C" {
     pub fn ps_publish(chain: Chain, ty: TypeId, event: *const c_void, md: *mut Metadata) -> i32;
 }
 
+#[cfg(feature = "dice-self")]
 pub mod thread {
     use crate::DiceThreadId;
 
@@ -31,8 +32,9 @@ pub mod thread {
 
 #[link(name = "dice", kind = "static")]
 unsafe extern "C" {
-    pub fn mempool_alloc(size: usize) -> *mut c_void;
-    pub fn mempool_free(ptr: *mut c_void);
+    pub fn mempool_aligned_alloc(alignment: libc::size_t, size: libc::size_t) -> *mut libc::c_void;
+    pub fn mempool_alloc(size: libc::size_t) -> *mut libc::c_void;
+    pub fn mempool_free(ptr: *mut libc::c_void);
 }
 
 #[link(name = "shim", kind = "static")]

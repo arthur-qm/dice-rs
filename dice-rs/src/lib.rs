@@ -130,13 +130,7 @@ pub struct Metadata {
 /// to allocate via dice's mempool instead of the default system allocator.
 pub struct MempoolAllocator;
 
-const MIN_ALIGN: usize = 8;
-
 /// Dice based memory allocator
-///
-/// will always allocate size of `size + alignment`
-/// which contains enough space for the header (to restore original pointer) and alignment
-///
 /// # Safety
 ///
 /// Everything from [`std::alloc::GlobalAlloc`] applies.
@@ -147,33 +141,7 @@ unsafe impl GlobalAlloc for MempoolAllocator {
     /// Everything from [`std::alloc::GlobalAlloc::alloc`] applies.
     #[inline]
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let align = layout.align();
-        let size = layout.size();
-
-        if align <= MIN_ALIGN {
-            return unsafe { raw::mempool_alloc(size) as *mut u8 };
-        }
-
-        // size + alignment guarantees space for header and alignment
-        let alloc_size = size + align;
-        let raw_ptr = unsafe { raw::mempool_alloc(alloc_size) as *mut u8 };
-
-        if raw_ptr.is_null() {
-            return std::ptr::null_mut();
-        }
-
-        let raw_addr = raw_ptr as usize;
-        let header_size = std::mem::size_of::<usize>();
-
-        let mask = align - 1;
-        let aligned_addr = (raw_addr + header_size + mask) & !mask;
-        let aligned_ptr = aligned_addr as *mut u8;
-
-        // Store the header immediately before the aligned pointer.
-        let header_ptr = unsafe { (aligned_ptr as *mut usize).sub(1) };
-        unsafe { *header_ptr = raw_addr };
-
-        aligned_ptr
+        unsafe { raw::mempool_aligned_alloc(layout.align(), layout.size()) as *mut u8 }
     }
 
     /// Deallocate a previously allocated memory region.
@@ -182,15 +150,8 @@ unsafe impl GlobalAlloc for MempoolAllocator {
     ///
     /// Everything from [`std::alloc::GlobalAlloc::dealloc`] applies
     #[inline]
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        if layout.align() <= MIN_ALIGN {
-            unsafe { raw::mempool_free(ptr as *mut libc::c_void) };
-        } else {
-            // Read the header to find the original pointer
-            let header_ptr = unsafe { (ptr as *mut usize).sub(1) };
-            let raw_addr = unsafe { *header_ptr };
-            unsafe { raw::mempool_free(raw_addr as *mut libc::c_void) };
-        }
+    unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
+        unsafe { raw::mempool_free(ptr as *mut libc::c_void) };
     }
 }
 
