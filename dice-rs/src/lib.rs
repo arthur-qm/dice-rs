@@ -259,8 +259,9 @@ pub mod thread {
         pub fn get_mut<'a>(&self, mt: &'a mut Metadata) -> &'a mut T {
             // SAFETY: cell gets initialized in this function if it is not already.
             let cell = unsafe { self.cell_ptr(mt) };
-            // SAFETY: &'a mut Metadata ensures they have the same lifetime and metadata can only be borrowed once
-            // as metadata is unique per subscribe call and is !Send & !Sync, this is safe.
+            // Safety: to take a mutable reference, cell must be unique. This is fulfilled because:
+            // - &'a mut Metadata and &'a mut Cell will have the same lifetime and exclusiveness
+            // - This is thread local and cannot leave the thread due to !Send and !Sync
             let cell = unsafe { &mut *cell };
             // TODO: consider using (#[cold] based) unlikely here as this only happens once
             if !cell.initialized {
