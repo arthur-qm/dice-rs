@@ -551,6 +551,7 @@ pub union ma_val {
 
 impl core::fmt::Debug for ma_val {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        // SAFETY: all potential variant are unsigned integers, upcasting them is safe.
         let v = unsafe { self.u64_ };
         write!(f, "ma_val({:#x} / {})", v, v)
     }

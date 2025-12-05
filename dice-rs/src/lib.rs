@@ -97,7 +97,10 @@ pub trait DiceEvent: Sized {
             let ptr = ptr as *const Self;
             debug_assert!(ptr.is_aligned(), "Sanity Check");
 
-            // SAFETY: we know ptr has the correct type and is not null.
+            // SAFETY: we know ptr is not null because we tested for null above.
+            // By the safety assumption of this function,
+            // this means it is a valid pointer to a properly initialized Self,
+            // and we can take a reference to it
             let reference = unsafe { &*ptr };
             Some(reference)
         }
@@ -130,27 +133,35 @@ pub struct Metadata {
 /// to allocate via dice's mempool instead of the default system allocator.
 pub struct MempoolAllocator;
 
-/// Dice based memory allocator
-/// # Safety
+/// GlobalAlloc interface implementation for Dice Mempool Allocator
 ///
-/// Everything from [`std::alloc::GlobalAlloc`] applies.
+/// SAFETY:
+/// - does not unwind
+/// - allocation is at least as big as requested and is aligned
+/// - this allocator does not rely on allocations actually happenin
+///   or in other words, it does not conflict or require state that would conflict with optimizing allocations away.
 unsafe impl GlobalAlloc for MempoolAllocator {
-    /// Returns a pointer to a correctly sized memory region.
+    /// Returns a pointer to a correctly sized memory
+    /// or null to indiciate allocation failure
     /// # Safety
-    ///
-    /// Everything from [`std::alloc::GlobalAlloc::alloc`] applies.
+    /// - zero sized layouts are UB
+    /// # Errors
+    /// on memory exhaustion will return a null pointer
     #[inline]
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        // SAFETY: dice mempool allocates memory with all the requirements described above.
         unsafe { raw::mempool_aligned_alloc(layout.align(), layout.size()) as *mut u8 }
     }
 
-    /// Deallocate a previously allocated memory region.
+    /// Deallocate a previously allocated memory.
     ///
     /// # Safety
-    ///
-    /// Everything from [`std::alloc::GlobalAlloc::dealloc`] applies
+    /// ptr must be allocated with the same allocator instance.
+    /// the deallocation does not depend on the layout, it does not depend on the Layout
     #[inline]
     unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
+        // SAFETY: dice mempool keeps track of layout internally on allocation
+        // the freeing does not require layout and is safe when the correct pointer is supplied
         unsafe { raw::mempool_free(ptr as *mut libc::c_void) };
     }
 }
@@ -174,7 +185,8 @@ pub mod thread {
 
     /// Get the current dice thread ID.
     pub fn self_id(mt: &mut Metadata) -> DiceThreadId {
-        // Safety: if dice-self is linked this will return a valid id
+        // SAFETY: Metadata cannot be constructed,
+        // thus it is exclusive and will always yield a correct Self Id
         unsafe { raw::thread::self_id(mt) }
     }
 
@@ -207,30 +219,23 @@ pub mod thread {
     impl<T: Default> TlsKey<T> {
         /// get a potentially unatialized thread local storage pointer
         /// # Safety
-        /// requires valid linking of dice library with self module
-        /// user needs to initialize themselves
+        /// user must check for initialization and potentially do it themselves
         #[inline(always)]
         unsafe fn cell_ptr(&self, mt: &mut Metadata) -> *mut TlsCell<T> {
-            // my_obj = self_tls_get(key);
-            // if (!my_obj) {
-            // my_obj = mempool_aligned_alloc(alignment, size);
-            // self_tls_set(key, my_obj, dtor);
-            // }
-
             let key = self as *const TlsKey<T> as libc::uintptr_t;
 
-            // Safety: null check
+            // SAFETY: key and metadata are both references and thus valid here (metadata even exclusive)
             let raw = unsafe { raw::thread::self_tls_get(mt, key) as *mut TlsCell<T> };
             if !raw.is_null() {
                 return raw;
             }
 
             let layout = std::alloc::Layout::new::<TlsCell<T>>();
-            // Safety: correct alignment
+            // SAFETY: correct size and alignment calculated
             let raw = unsafe { raw::mempool_aligned_alloc(layout.align(), layout.size()) };
             let ptr = raw as *mut TlsCell<T>;
             debug_assert!(!raw.is_null() && raw.is_aligned());
-            // Safety: null and alignment check
+            // SAFETY: ptr not null and alignment correct (checked in debug)
             unsafe {
                 raw::thread::self_tls_set(
                     mt,
@@ -241,22 +246,20 @@ pub mod thread {
             };
             ptr
         }
+
+        /// wrapper for get_mut make scoping easier
         #[inline]
         pub fn with<R>(&self, mt: &mut Metadata, f: impl FnOnce(&mut T) -> R) -> R {
-            // Safety: see the safety contract of `Self::get_mut`
-            let t = unsafe { self.get_mut(mt) };
+            let t = self.get_mut(mt);
             f(t)
         }
 
-        /// # Safety
-        /// this function requires a valid &'a mut Metdata, which forces unique and exclusive usage.
-        /// Furthermore, as Metadata is !Send and !Sync, we also enforce that this thread local object will stay there.
-        /// TODO: we could even consider `Pin` type.
+        /// Get a Mutable reference to a Thread Local Storage Object
         #[inline]
-        pub unsafe fn get_mut<'a>(&self, mt: &'a mut Metadata) -> &'a mut T {
-            // Safety: cell gets initialized here if it is not already.
+        pub fn get_mut<'a>(&self, mt: &'a mut Metadata) -> &'a mut T {
+            // SAFETY: cell gets initialized in this function if it is not already.
             let cell = unsafe { self.cell_ptr(mt) };
-            // Safety: &'a mut Metadata ensures they have the same lifetime and metadata can only be borrowed once
+            // SAFETY: &'a mut Metadata ensures they have the same lifetime and metadata can only be borrowed once
             // as metadata is unique per subscribe call and is !Send & !Sync, this is safe.
             let cell = unsafe { &mut *cell };
             // TODO: consider using (#[cold] based) unlikely here as this only happens once
@@ -264,7 +267,8 @@ pub mod thread {
                 cell.value = MaybeUninit::new(T::default());
                 cell.initialized = true;
             }
-            // Safety: this value is initialized now
+
+            // SAFETY: this value is definitely initialized now
             unsafe { cell.value.assume_init_mut() }
         }
     }
@@ -282,8 +286,10 @@ pub mod thread {
 /// this subscribe macro emulates a normal rust anonymous function structure.
 /// it creates a c callback and subscribes it automatically
 /// it is type, lifetime and capture guarded using the _guard
-/// # Warning
-/// The priority must be > 4 to not conflict with dice interals
+///
+/// # Panics
+///
+/// Will panic if priority of <= 4 is used. These are reserverd dice internal priorities.
 #[macro_export]
 macro_rules! subscribe_scoped {
     ($chain:expr, $prio:expr, |$e:ident: &$t:ty, $m:ident| $body:block) => {{
@@ -322,9 +328,8 @@ macro_rules! subscribe_scoped {
             $body
         }
 
-        // SAFETY: a valid c function is supplied, the chain is typed/variance safe
-        // the prio must be > 4 is also confirmed. for Priority <= 4, conflicts with dice
-        // internals could happen.
+        // Safety: all inputs are well typed to not make invalid states possible
+        // prio > 4 is checked, to not conflict with dice internals
         unsafe {
             $crate::raw::ps_subscribe(
                 $chain,
